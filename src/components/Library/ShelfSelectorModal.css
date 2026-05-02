@@ -1,0 +1,166 @@
+.shelf-selector-modal {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px var(--shadow-color);
+  color: var(--text-primary);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.modal-header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  display: flex;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shelves-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shelf-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+.shelf-item:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.create-shelf-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+.btn-add-shelf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  background: none;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--accent-color);
+  font-weight: 500;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-add-shelf:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--accent-color);
+}
+
+.create-shelf-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.create-shelf-input input {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.create-shelf-input input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  background-color: var(--input-focus-bg);
+}
+
+.create-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-cancel, .btn-confirm {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background-color: var(--btn-secondary-bg);
+  border: 1px solid var(--border-color);
+  color: var(--btn-secondary-text);
+}
+
+.btn-cancel:hover {
+  background-color: var(--btn-secondary-hover);
+  border-color: var(--text-secondary);
+}
+
+.btn-confirm {
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+}
+
+.btn-confirm:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

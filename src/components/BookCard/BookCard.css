@@ -1,0 +1,121 @@
+.book-card.grid {
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.book-card.grid:hover {
+  transform: translateY(-4px);
+}
+
+.book-cover-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2/3;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--bg-tertiary);
+  box-shadow: 0 4px 12px var(--shadow-color);
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.book-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.progress-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  padding: 12px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-bar-container {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent-color);
+  transition: width 0.3s ease, background-color 0.3s;
+}
+
+.progress-text {
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.book-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.book-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s;
+}
+
+.book-author {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.3s;
+}
+
+/* List View Styles */
+.book-card.list {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.3s;
+}
+
+.book-card.list:hover {
+  background-color: var(--bg-secondary);
+}
+
+.book-card.list .book-cover-container {
+  width: 60px;
+  aspect-ratio: 2/3;
+}
+
+.book-card.list .progress-overlay {
+  display: none;
+}
+
+.book-card.list .book-info {
+  flex-grow: 1;
+}
+
+.book-card.list .book-title {
+  font-size: 16px;
+}

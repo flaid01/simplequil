@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree -L 3 -a /c/Users/david/personal/proyectos/simplequil --ignore \"node_modules|target\")",
+      "Bash(find /c/Users/david/personal/proyectos/simplequil -maxdepth 3 -not -path */node_modules/* -not -path */.git/* -not -path */target/*)"
+    ]
+  }
+}

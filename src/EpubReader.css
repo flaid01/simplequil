@@ -1,0 +1,983 @@
+@import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,300..700&display=swap');
+
+/* ── Design tokens ───────────────────────────────────────────
+   Reading layout — three values control the whole geometry:
+
+   · --col-margin   outer text margin (left edge → col1 start,
+                    and right edge of col2 → right edge)
+   · --col-gap      space between the two columns AND the right
+                    padding of the content element (MUST stay
+                    equal — this is what makes every page jump
+                    land on an exact column boundary)
+   · --page-pad-v   top/bottom text breathing room
+
+   Alignment proof: col2 ends at W − col-gap; gap to col3 = col-gap;
+   so col3 starts at W − col-gap + col-gap = W = clientWidth. ✓
+   ─────────────────────────────────────────────────────────── */
+:root {
+  /* Reading surface */
+  --col-margin:        40px;   /* outer horizontal text margin  */
+  --col-gap:           28px;   /* gutter = also the right padding */
+  --page-pad-v:        48px;   /* top/bottom text padding       */
+
+  /* UI chrome */
+  --topbar-height:     56px;
+  --bottombar-height:  64px;
+  --sidebar-width:     300px;
+  --accent:            #646cff;
+  --accent-rgb:        100, 108, 255;
+}
+
+/* ── Themes ─────────────────────────────────────────────────── */
+.epub-reader-container {
+  --reader-bg:         #f5ecd7;
+  --reader-text:       #2d1f0e;
+  --reader-text-muted: #8b7355;
+  --reader-ui-bg:      #ede0c4;
+  --reader-border:     #d3c2a3;
+}
+.epub-reader-container.theme-light {
+  --reader-bg:         #ffffff;
+  --reader-text:       #1a1a1a;
+  --reader-text-muted: #6b7280;
+  --reader-ui-bg:      #f8f9fa;
+  --reader-border:     #e9ecef;
+}
+.epub-reader-container.theme-sepia {
+  --reader-bg:         #f5ecd7;
+  --reader-text:       #2d1f0e;
+  --reader-text-muted: #8b7355;
+  --reader-ui-bg:      #ede0c4;
+  --reader-border:     #d3c2a3;
+}
+.epub-reader-container.theme-dark {
+  --reader-bg:         #121212;
+  --reader-text:       #e0e0e0;
+  --reader-text-muted: #888888;
+  --reader-ui-bg:      #1e1e1e;
+  --reader-border:     #2e2e2e;
+}
+
+/* ── Root ───────────────────────────────────────────────────── */
+.epub-reader-container {
+  position: fixed;
+  inset: 0;
+  background-color: var(--reader-bg);
+  color: var(--reader-text);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'Literata', 'Georgia', 'Times New Roman', serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Top bar ────────────────────────────────────────────────── */
+.reader-top-bar {
+  height: var(--topbar-height);
+  flex-shrink: 0;
+  background-color: var(--reader-ui-bg);
+  border-bottom: 1px solid var(--reader-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 100;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Fullscreen and Focus Mode Top Bar Logic */
+.epub-reader-container.is-fullscreen .reader-top-bar,
+.epub-reader-container.focus-mode .reader-top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(-100%);
+  opacity: 0;
+}
+
+/* Hover trigger for top bar */
+.epub-reader-container.is-fullscreen .reader-top-bar::after,
+.epub-reader-container.focus-mode .reader-top-bar::after {
+  content: '';
+  position: absolute;
+  bottom: -30px;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: auto;
+}
+
+.epub-reader-container.is-fullscreen .reader-top-bar:hover,
+.epub-reader-container.focus-mode .reader-top-bar:hover {
+  transform: translateY(0);
+  opacity: 1;
+}
+.reader-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reader-btn {
+  background: none;
+  border: none;
+  color: var(--reader-text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  transition: background-color 0.15s, color 0.15s;
+}
+.reader-btn:hover  { background-color: rgba(128,128,128,.12); }
+.reader-btn:active { transform: scale(0.97); }
+.reader-btn.active {
+  background-color: rgba(var(--accent-rgb), .1);
+  color: var(--accent);
+}
+.playback-control {
+  background-color: rgba(128,128,128,.07);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ── Main area ──────────────────────────────────────────────── */
+.reader-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Sidebars — flex push (not absolute overlay) ────────────── */
+.reader-sidebar {
+  flex-shrink: 0;
+  width: 0;
+  overflow: hidden;
+  background-color: var(--reader-ui-bg);
+  border-right: 1px solid var(--reader-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 280ms cubic-bezier(0.4,0,0.2,1);
+}
+.reader-sidebar.open  { width: var(--sidebar-width); }
+.reader-sidebar.right { border-right: none; border-left: 1px solid var(--reader-border); order: 3; }
+.reader-sidebar.quotes-sidebar { order: -1; border-right: 1px solid var(--reader-border); border-left: none; }
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+.sidebar-resize-handle:hover { background-color: var(--accent); }
+.sidebar-resize-handle.left { right: auto; left: -2px; }
+
+.sidebar-header {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--reader-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+.sidebar-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.quote-card {
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background-color: var(--reader-ui-bg);
+  border: 1px solid var(--reader-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quote-content {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--reader-text);
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Quote card colors */
+.quote-card.yellow { border-left: 4px solid #fde047; }
+.quote-card.green  { border-left: 4px solid #4ade80; }
+.quote-card.blue   { border-left: 4px solid #60a5fa; }
+
+/* ── Content viewport ─────────────────────────────────────── */
+.reader-content-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background-color: var(--reader-bg);
+  transition: background-color 0.3s;
+  
+  /* Vertical and Horizontal margins move here to simplify height math */
+  padding: var(--page-pad-v) var(--col-margin);
+}
+
+.loading-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--reader-bg);
+  color: var(--reader-text);
+  font-size: 1.1rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  z-index: 200;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.reader-error-container,
+.reader-empty-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+  background-color: var(--reader-bg);
+  z-index: 150;
+}
+
+.reader-error-container h3 {
+  margin: 20px 0 10px;
+  font-size: 1.25rem;
+  color: var(--reader-text);
+}
+
+.reader-error-container p {
+  color: var(--reader-text-muted);
+  max-width: 400px;
+  margin-bottom: 24px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.retry-btn {
+  background-color: var(--accent) !important;
+  color: white !important;
+  padding: 10px 20px !important;
+  font-weight: 600 !important;
+}
+
+.reader-empty-container p {
+  margin-top: 16px;
+  color: var(--reader-text-muted);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── Reading Surface (The Infinite Strip) ──────────────────── */
+.reader-surface {
+  width: 100%;
+  height: 100%; /* This now represents the EXACT available content height */
+  padding: 0; 
+  box-sizing: border-box;
+  
+  /* Multi-column Layout */
+  column-count: 2;
+  /* Increased gap slightly to ensure no bleed */
+  column-gap: calc(var(--col-gap) * 1.5); 
+  column-fill: auto;
+  
+  overflow: visible; 
+  
+  text-rendering: optimizeLegibility;
+  user-select: text;
+  -webkit-user-select: text;
+
+  /* Force visibility */
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* EPUB Reset - prevent books from hiding themselves */
+.reader-surface * {
+  box-sizing: border-box !important;
+  max-width: 100%;
+}
+
+.reader-surface [style*="display: none"],
+.reader-surface [style*="display:none"] {
+  display: block !important;
+}
+
+.reader-surface [style*="visibility: hidden"],
+.reader-surface [style*="visibility:hidden"] {
+  visibility: visible !important;
+}
+
+.reader-surface [style*="opacity: 0"],
+.reader-surface [style*="opacity:0"] {
+  opacity: 1 !important;
+}
+
+/* Ensure EVERYTHING inside the surface respects the column height */
+.reader-surface * {
+  box-sizing: border-box !important;
+}
+
+.reader-surface img,
+.reader-surface svg,
+.reader-surface image {
+  max-width: 100% !important;
+  max-height: var(--column-height, 95%) !important; 
+  width: auto; /* removed !important from width/height to let attributes work on SVG images */
+  height: auto;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 auto !important;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+  vertical-align: top !important;
+}
+
+/* Specific fix for SVG elements as containers */
+.reader-surface svg {
+  max-width: 100% !important;
+  max-height: var(--column-height, 95%) !important;
+  width: 100%; /* SVG wrappers should fill width then be limited by max-height */
+  height: auto;
+  overflow: visible !important;
+}
+
+/* Force container parents of images to respect the column height and handle alignment */
+.reader-surface div, 
+.reader-surface figure,
+.reader-surface section,
+.reader-surface center,
+.reader-surface table,
+.reader-surface tr,
+.reader-surface td {
+  height: auto !important;
+  max-height: 100% !important;
+  break-inside: avoid !important;
+  text-align: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Ensure images inside paragraphs don't inherit text-indent and aren't pushed out */
+.reader-surface p:has(img),
+.reader-surface p:has(svg),
+.reader-surface p:has(image) {
+  text-indent: 0 !important;
+  text-align: center;
+  margin: 0 !important;
+  padding: 0 !important;
+  max-height: 100% !important;
+}
+
+/* EPUB typography */
+.reader-surface {
+  font-family: 'Literata', 'Georgia', 'Times New Roman', serif;
+  line-height: 1.85;
+  color: var(--reader-text);
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.reader-surface p {
+  margin: 0;
+  text-indent: 1.4em;
+}
+.reader-surface h1 + p,
+.reader-surface h2 + p,
+.reader-surface h3 + p {
+  text-indent: 0;
+}
+.reader-surface h1,
+.reader-surface h2,
+.reader-surface h3 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.5em 0 0.6em;
+  text-indent: 0;
+}
+.reader-surface h1 { font-size: 1.5em; }
+.reader-surface h2 { font-size: 1.25em; }
+.reader-surface h3 { font-size: 1.1em; }
+.reader-surface em { font-style: italic; }
+.reader-surface blockquote {
+  border-left: 2px solid var(--reader-border);
+  margin: 1.2em 0;
+  padding: 0 0 0 1.2em;
+  font-style: italic;
+  color: var(--reader-text-muted);
+  text-indent: 0;
+}
+
+/* ── Bottom bar ─────────────────────────────────────────────── */
+.reader-bottom-bar {
+  height: var(--bottombar-height);
+  flex-shrink: 0;
+  background-color: var(--reader-ui-bg);
+  border-top: 1px solid var(--reader-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 32px;
+  gap: 4px;
+  z-index: 100;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Fullscreen and Focus Mode Bottom Bar Logic */
+.epub-reader-container.is-fullscreen .reader-bottom-bar,
+.epub-reader-container.focus-mode .reader-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* Hover trigger for bottom bar */
+.epub-reader-container.is-fullscreen .reader-bottom-bar::before,
+.epub-reader-container.focus-mode .reader-bottom-bar::before {
+  content: '';
+  position: absolute;
+  top: -30px;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: auto;
+}
+
+.epub-reader-container.is-fullscreen .reader-bottom-bar:hover,
+.epub-reader-container.focus-mode .reader-bottom-bar:hover {
+  transform: translateY(0);
+  opacity: 1;
+}
+.progress-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.reader-progress-slider {
+  flex: 1;
+  height: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--reader-border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  transition: height 0.15s;
+}
+.reader-progress-slider:hover { height: 5px; }
+.reader-progress-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .15);
+  transition: transform 0.15s;
+}
+.reader-progress-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+.reader-progress-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+}
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--reader-text-muted);
+  letter-spacing: 0.02em;
+}
+.progress-info span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.progress-info span:last-child {
+  flex-shrink: 0;
+}
+
+/* ── TOC ────────────────────────────────────────────────────── */
+.toc-list { list-style: none; padding: 0; margin: 0; }
+.toc-item {
+  padding: 9px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  margin-bottom: 1px;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--reader-text);
+  transition: background-color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toc-item:hover { background-color: rgba(128,128,128,.1); }
+.toc-item.active {
+  color: var(--accent);
+  font-weight: 600;
+  background-color: rgba(var(--accent-rgb), .06);
+}
+
+/* ── Settings ───────────────────────────────────────────────── */
+.settings-group { margin-bottom: 28px; white-space: nowrap; }
+.settings-group label {
+  display: block;
+  font-size: 11px;
+  font-family: 'Inter', system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--reader-text-muted);
+}
+.theme-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.theme-option {
+  height: 36px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.theme-option:hover  { transform: scale(1.04); }
+.theme-option.active { border-color: var(--accent); }
+.theme-light-opt { background-color: #ffffff; border-color: #e9ecef; }
+.theme-sepia-opt { background-color: #f5ecd7; border-color: #d3c2a3; }
+.theme-dark-opt  { background-color: #1e1e1e; border-color: #333333; }
+
+.font-size-control { display: flex; align-items: center; gap: 12px; }
+.font-size-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--reader-border);
+  background: none;
+  color: var(--reader-text);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s;
+  font-family: inherit;
+}
+.font-size-btn:hover { background-color: rgba(128,128,128,.1); }
+.font-size-label {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--reader-text);
+}
+
+/* ── Selection Menu & Image Menu ────────────────────────── */
+.selection-menu {
+  background-color: var(--reader-ui-bg);
+  border: 1px solid var(--reader-border);
+  border-radius: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  pointer-events: auto;
+  animation: selectionFadeIn 0.2s ease-out;
+}
+
+.image-menu {
+  z-index: 1001;
+}
+
+@keyframes selectionFadeIn {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 5px)); }
+  to { opacity: 1; transform: translate(-50%, calc(-100% - 10px)); }
+}
+
+.selection-btn {
+  background: none;
+  border: none;
+  color: var(--reader-text);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.selection-btn:hover {
+  background-color: rgba(var(--accent-rgb), 0.1);
+  color: var(--accent);
+}
+
+.highlight-btn.yellow { color: #eab308; }
+.highlight-btn.green  { color: #22c55e; }
+.highlight-btn.blue   { color: #3b82f6; }
+
+.highlight-btn.yellow:hover { background-color: rgba(234, 179, 8, 0.1); }
+.highlight-btn.green:hover  { background-color: rgba(34, 197, 94, 0.1); }
+.highlight-btn.blue:hover   { background-color: rgba(59, 130, 246, 0.1); }
+
+.selection-menu::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--reader-ui-bg);
+}
+
+/* ── TTS Dropdown ──────────────────────────────────────────── */
+.tts-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 280px;
+  background-color: var(--reader-ui-bg);
+  border: 1px solid var(--reader-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 1000;
+  animation: dropdownFadeIn 0.2s ease-out;
+  cursor: default;
+}
+
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tts-dropdown::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 15px;
+  border: 8px solid transparent;
+  border-bottom-color: var(--reader-ui-bg);
+}
+
+.tts-dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--reader-text);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--reader-border);
+}
+
+.tts-dropdown-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tts-dropdown-section label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--reader-text-muted);
+}
+
+.tts-dropdown-section select {
+  background-color: var(--reader-bg);
+  color: var(--reader-text);
+  border: 1px solid var(--reader-border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.label-row span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.tts-dropdown-section input[type="range"] {
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.85rem !important;
+  text-transform: none !important;
+  color: var(--reader-text) !important;
+  font-weight: 500 !important;
+}
+
+.checkbox-label input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.expanded-image-controls {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 6px;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 2100;
+}
+
+.expanded-image-info {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 10px 20px;
+  border-radius: 20px;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  font-family: 'Inter', sans-serif;
+  z-index: 2100;
+  pointer-events: none;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.info-item span { opacity: 0.9; }
+
+.ctrl-btn {
+  background: none;
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.8;
+}
+
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.ctrl-btn.close:hover {
+  background: #ef4444;
+}
+
+.ctrl-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 4px;
+}
+
+.image-scroll-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 60px;
+}
+
+.image-scroll-container img {
+  max-width: 90%;
+  max-height: 90%;
+  object-fit: contain;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  border-radius: 4px;
+  transform-origin: center center;
+}
+
+/* ── RSVP Overlay (Focus Mode Speed Reading) ────────── */
+.rsvp-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: var(--reader-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.rsvp-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.rsvp-word {
+  font-size: 5rem;
+  font-weight: 700;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--reader-text);
+  text-align: center;
+  max-width: 80%;
+  word-break: break-word;
+  letter-spacing: -0.02em;
+}
+
+/* TTS Highlighting */
+.tts-sentence {
+  transition: background-color 0.3s ease;
+  border-radius: 4px;
+}
+
+.tts-sentence.active {
+  background-color: rgba(var(--accent-rgb), 0.25);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.1);
+}
+
+/* User Highlighting */
+.user-highlight {
+  border-radius: 2px;
+  padding: 1px 0;
+}
+.user-highlight.yellow { background-color: rgba(253, 224, 71, 0.4); }
+.user-highlight.green  { background-color: rgba(74, 222, 128, 0.4); }
+.user-highlight.blue   { background-color: rgba(96, 165, 250, 0.4); }
+
+.playback-control-group {
+  background: var(--reader-border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px !important;
+}
+
+.rsvp-image {
+  max-width: 80%;
+  max-height: 80%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.rsvp-hint {
+  position: absolute;
+  bottom: 15%;
+  font-size: 14px;
+  color: var(--reader-text-muted);
+  font-family: 'Inter', sans-serif;
+  background: rgba(128, 128, 128, 0.1);
+  padding: 8px 16px;
+  border-radius: 20px;
+  animation: rsvpPulse 2.5s infinite;
+}
+
+.rsvp-stats {
+  position: absolute;
+  bottom: 5%;
+  font-size: 12px;
+  color: var(--reader-text-muted);
+  font-family: 'Inter', sans-serif;
+  opacity: 0.6;
+}
+
+@keyframes rsvpPulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  :root {
+    --col-margin: 20px;
+    --col-gap:    20px;
+    --page-pad-v: 32px;
+  }
+  .reader-page {
+    grid-template-columns: 1fr;  /* single column */
+    font-size: 16px;
+  }
+}

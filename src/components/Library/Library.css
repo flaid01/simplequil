@@ -1,0 +1,336 @@
+.library-view {
+  flex-grow: 1;
+  padding: 32px;
+  background-color: var(--bg-primary);
+  box-sizing: border-box;
+  transition: background-color 0.3s;
+  overflow-y: auto; 
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.shelf-view-header {
+  margin-bottom: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 24px;
+}
+
+.back-to-shelves-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  width: fit-content;
+  transition: color 0.2s;
+}
+
+.back-to-shelves-btn:hover {
+  color: var(--accent-color);
+}
+
+.shelf-view-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.shelf-view-info h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.shelf-icon {
+  color: var(--accent-color);
+}
+
+.book-count-badge {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.empty-shelf-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 0;
+  color: var(--text-tertiary);
+}
+
+.library-view.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* For Grid mode virtualization */
+.books-container.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 32px;
+  justify-items: center;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
+.virtual-grid-item {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+  padding-bottom: 32px;
+}
+
+/* Item Container - Unified */
+.virtual-item-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  user-select: none;
+  padding: 8px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.virtual-item-container:hover {
+  background-color: var(--bg-secondary);
+}
+
+.virtual-item-container.keyboard-focused {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  background-color: var(--bg-secondary);
+}
+
+.virtual-item-container.selected {
+  background-color: var(--accent-primary-light);
+  transform: scale(0.98);
+}
+
+/* For List mode virtualization */
+.books-container.list {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.empty-library {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  gap: 24px;
+  transition: color 0.3s;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.import-btn-large {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 48px;
+  background-color: var(--bg-secondary);
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 200px;
+}
+
+.import-btn-large:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+}
+
+.import-btn-large span {
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.selection-indicator {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 24px;
+  height: 24px;
+  background-color: var(--accent-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 5;
+  animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popIn {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.selection-marquee {
+  position: absolute;
+  border: 1px solid var(--accent-color);
+  background-color: var(--accent-primary-alpha);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.selection-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 100px;
+  padding: 8px 12px 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.15);
+}
+
+@keyframes slideUp {
+  from { transform: translate(-50%, 100px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  border-right: 1px solid var(--border-color);
+  padding-right: 20px;
+}
+
+.close-selection {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  transition: all 0.2s;
+}
+
+.close-selection:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.selection-actions button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  border-radius: 50px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.selection-actions button:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.selection-actions button.danger:hover {
+  background-color: #fee2e2;
+  color: #ef4444;
+}
+
+/* ── Series badge on cards ─────────────────────── */
+.series-grid-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px 3px 5px;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.series-list-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px 2px 4px;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.series-list-read-badge {
+  font-size: 12px;
+  color: var(--accent-color);
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Custom CSS variables if not already defined */
+:root {
+  --accent-primary-light: rgba(79, 70, 229, 0.1);
+  --accent-primary-alpha: rgba(79, 70, 229, 0.2);
+}

@@ -1,0 +1,127 @@
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Global Themes ─────────────────────────────────────────── */
+.theme-light {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #f1f3f5;
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #888888;
+  --border-color: #e9ecef;
+  --accent-color: #646cff;
+  --accent-hover: #535bf2;
+  --sidebar-bg: #f5f5f7;
+  --input-bg: #f1f3f5;
+  --input-focus-bg: #ffffff;
+  --card-bg: #ffffff;
+  --overlay-bg: #ffffff;
+  --details-bg: #f8f9fa;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-border: #e0e0e0;
+  --btn-secondary-text: #333333;
+  --btn-secondary-hover: #f8f9fa;
+  --favorite-color: #e11d48;
+  --favorite-bg: #fff1f2;
+  --favorite-border: #fda4af;
+}
+
+.theme-sepia {
+  --bg-primary: #f5ecd7;
+  --bg-secondary: #ede0c4;
+  --bg-tertiary: #e5d8bc;
+  --text-primary: #2d1f0e;
+  --text-secondary: #8b7355;
+  --text-tertiary: #a68b6a;
+  --border-color: #d3c2a3;
+  --accent-color: #a67c52;
+  --accent-hover: #8d6641;
+  --sidebar-bg: #e5d8bc;
+  --input-bg: #ede0c4;
+  --input-focus-bg: #f5ecd7;
+  --card-bg: #f5ecd7;
+  --overlay-bg: #f5ecd7;
+  --details-bg: #f5ecd7;
+  --shadow-color: rgba(45, 31, 14, 0.15);
+  --btn-secondary-bg: #ede0c4;
+  --btn-secondary-border: #d3c2a3;
+  --btn-secondary-text: #2d1f0e;
+  --btn-secondary-hover: #e5d8bc;
+  --favorite-color: #a62639;
+  --favorite-bg: #f8e1e1;
+  --favorite-border: #e8a7a7;
+}
+
+.theme-dark {
+  --bg-primary: #121212;
+  --bg-secondary: #1e1e1e;
+  --bg-tertiary: #2a2a2a;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #888888;
+  --border-color: #2e2e2e;
+  --accent-color: #747bff;
+  --accent-hover: #8b91ff;
+  --sidebar-bg: #181818;
+  --input-bg: #2a2a2a;
+  --input-focus-bg: #333333;
+  --card-bg: #1e1e1e;
+  --overlay-bg: #121212;
+  --details-bg: #121212;
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --btn-secondary-bg: #1e1e1e;
+  --btn-secondary-border: #2e2e2e;
+  --btn-secondary-text: #e0e0e0;
+  --btn-secondary-hover: #2a2a2a;
+  --favorite-color: #fb7185;
+  --favorite-bg: #4c1d24;
+  --favorite-border: #881337;
+}
+
+.app-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* ── Keyboard Navigation ───────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.main-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  min-width: 0;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
