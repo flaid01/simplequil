@@ -11,12 +11,14 @@ import {
   CheckCircle,
   Loader2,
   BookOpen,
-  Trash2
+  Trash2,
+  Languages
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ThemeType } from '../../types';
 import './Settings.css';
+import { useTranslation } from 'react-i18next';
 
 interface PiperModel {
   name: string;
@@ -42,6 +44,7 @@ const Settings: React.FC<SettingsProps> = ({
   openDirectlyToReader, setOpenDirectlyToReader,
   launcherOpenDirectly, setLauncherOpenDirectly
 }) => {
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabType>('system');
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>('');
@@ -51,8 +54,51 @@ const Settings: React.FC<SettingsProps> = ({
   const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
   const [downloadMsg, setDownloadMsg] = useState('');
   
+  const [isEngineInstalled, setIsEngineInstalled] = useState<boolean>(false);
+  const [isDownloadingEngine, setIsDownloadingEngine] = useState<boolean>(false);
+
+  const checkEngineStatus = async () => {
+    try {
+      const installed = await invoke('is_piper_engine_installed') as boolean;
+      setIsEngineInstalled(installed);
+    } catch (err) {
+      console.error('Error checking engine status:', err);
+    }
+  };
+
+  const handleDownloadEngine = async () => {
+    try {
+      setIsDownloadingEngine(true);
+      setDownloadMsg('Iniciando descarga del motor Piper...');
+      await invoke('download_piper_engine');
+      await checkEngineStatus();
+      setIsDownloadingEngine(false);
+      setDownloadMsg('Motor Piper instalado correctamente.');
+      setTimeout(() => setDownloadMsg(''), 3000);
+    } catch (err) {
+      console.error('Engine download failed:', err);
+      setIsDownloadingEngine(false);
+      alert('Error al descargar el motor: ' + err);
+    }
+  };
+
+  const handleUninstallEngine = async () => {
+    if (!window.confirm(t('common.confirm_uninstall_piper'))) {
+      return;
+    }
+    try {
+      await invoke('uninstall_piper_engine');
+      await checkEngineStatus();
+      setDownloadMsg('Motor Piper desinstalado.');
+      setTimeout(() => setDownloadMsg(''), 3000);
+    } catch (err) {
+      console.error('Engine uninstall failed:', err);
+      alert('Error al desinstalar el motor: ' + err);
+    }
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('All');
+  const [selectedLanguage, setSelectedLanguage] = useState('');
 
   const loadPiperVoices = async () => {
     try {
@@ -60,20 +106,27 @@ const Settings: React.FC<SettingsProps> = ({
       setPiperVoices(downloaded);
       const available = await invoke('get_available_piper_models') as PiperModel[];
       setAvailablePiperModels(available);
+      
+      // Set default language if not set
+      if (available.length > 0 && !selectedLanguage) {
+        const uniqueLangs = Array.from(new Set(available.map(m => m.language))).sort();
+        // Try to find Spanish or just pick the first one
+        const defaultLang = uniqueLangs.find(l => l.toLowerCase().includes('spanish')) || uniqueLangs[0];
+        setSelectedLanguage(defaultLang);
+      }
     } catch (err) {
       console.error('Error loading Piper voices:', err);
     }
   };
 
-  const languages = ['All', ...Array.from(new Set(availablePiperModels.map(m => m.language)))].sort();
+  const languages = Array.from(new Set(availablePiperModels.map(m => m.language))).sort();
 
   const filteredModels = availablePiperModels.filter(model => {
     if (!model) return false;
     const name = model.name || '';
     const language = model.language || '';
-    const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         language.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesLang = selectedLanguage === 'All' || language === selectedLanguage;
+    const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesLang = language === selectedLanguage;
     return matchesSearch && matchesLang;
   });
 
@@ -113,6 +166,7 @@ const Settings: React.FC<SettingsProps> = ({
 
     loadVoices();
     loadPiperVoices();
+    checkEngineStatus();
     window.speechSynthesis.onvoiceschanged = loadVoices;
 
     let unlisten: any;
@@ -142,7 +196,7 @@ const Settings: React.FC<SettingsProps> = ({
   };
 
   const handleDeleteVoice = async (voiceName: string) => {
-    if (!window.confirm(`¿Seguro que quieres eliminar la voz ${voiceName}?`)) return;
+    if (!window.confirm(t('common.confirm_delete_voice', { name: voiceName }))) return;
     try {
       await invoke('delete_piper_voice', { name: voiceName });
       await loadPiperVoices();
@@ -217,7 +271,7 @@ const Settings: React.FC<SettingsProps> = ({
         <div className="header-left">
           <div className="header-title">
             <SettingsIcon size={24} />
-            <h1>Settings</h1>
+            <h1>{t('settings.title')}</h1>
           </div>
           
           <div className="settings-tabs">
@@ -226,21 +280,21 @@ const Settings: React.FC<SettingsProps> = ({
               onClick={() => setActiveTab('system')}
             >
               <Monitor size={18} />
-              <span>System</span>
+              <span>{t('settings.tabs.system')}</span>
             </button>
             <button 
               className={`tab-button ${activeTab === 'tts' ? 'active' : ''}`}
               onClick={() => setActiveTab('tts')}
             >
               <Volume2 size={18} />
-              <span>Text to Speech</span>
+              <span>{t('settings.tabs.tts')}</span>
             </button>
             <button 
               className={`tab-button ${activeTab === 'shortcuts' ? 'active' : ''}`}
               onClick={() => setActiveTab('shortcuts')}
             >
               <Keyboard size={18} />
-              <span>Shortcuts</span>
+              <span>{t('settings.tabs.shortcuts')}</span>
             </button>
           </div>
         </div>
@@ -373,6 +427,49 @@ const Settings: React.FC<SettingsProps> = ({
 
             <section className="settings-section">
               <div className="section-header">
+                <Monitor size={20} />
+                <h2>Piper Engine Manager</h2>
+              </div>
+              <p className="section-intro">El motor Piper es necesario para generar audio offline.</p>
+              <div className="setting-option">
+                <div className="setting-info">
+                  <span className="setting-label">Estado del Motor</span>
+                  <span className={`engine-status-tag ${isEngineInstalled ? 'installed' : 'missing'}`}>
+                    {isEngineInstalled ? 'Instalado' : 'No instalado'}
+                  </span>
+                </div>
+                <div className="engine-actions">
+                  {!isEngineInstalled ? (
+                    <button 
+                      className="download-btn"
+                      onClick={handleDownloadEngine}
+                      disabled={isDownloadingEngine}
+                    >
+                      {isDownloadingEngine ? <Loader2 size={18} className="spin" /> : <Download size={18} />}
+                      <span>{isDownloadingEngine ? 'Descargando...' : 'Descargar Motor (~30MB)'}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div className="engine-ready">
+                        <CheckCircle size={18} style={{ color: '#10b981' }} />
+                        <span style={{ marginLeft: '8px', color: '#10b981', fontWeight: 500 }}>Listo para usar</span>
+                      </div>
+                      <button 
+                        className="uninstall-btn"
+                        onClick={handleUninstallEngine}
+                        title="Desinstalar motor"
+                      >
+                        <Trash2 size={18} />
+                        <span>Desinstalar</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <div className="section-header">
                 <Download size={20} />
                 <h2>Piper (Local TTS)</h2>
               </div>
@@ -455,12 +552,12 @@ const Settings: React.FC<SettingsProps> = ({
             <section className="settings-section">
               <div className="section-header">
                 <Palette size={20} />
-                <h2>Appearance</h2>
+                <h2>{t('settings.appearance.title')}</h2>
               </div>
               <div className="setting-option theme-selection-container">
                 <div className="setting-info">
-                  <span className="setting-label">Theme</span>
-                  <span className="setting-description">Choose your preferred theme</span>
+                  <span className="setting-label">{t('settings.appearance.theme')}</span>
+                  <span className="setting-description">{t('settings.appearance.theme_desc')}</span>
                 </div>
                 <div className="theme-selector">
                   <div 
@@ -484,13 +581,34 @@ const Settings: React.FC<SettingsProps> = ({
 
             <section className="settings-section">
               <div className="section-header">
-                <BookOpen size={20} />
-                <h2>Lectura</h2>
+                <Languages size={20} />
+                <h2>{t('settings.language.title')}</h2>
               </div>
               <div className="setting-option">
                 <div className="setting-info">
-                  <span className="setting-label">Abrir directamente en el lector</span>
-                  <span className="setting-description">Saltar la vista de detalles al seleccionar un libro en la biblioteca</span>
+                  <span className="setting-label">{t('settings.language.select')}</span>
+                  <span className="setting-description">{t('settings.language.select_desc')}</span>
+                </div>
+                <select 
+                  className="setting-select" 
+                  value={i18n.language} 
+                  onChange={(e) => i18n.changeLanguage(e.target.value)}
+                >
+                  <option value="en">English</option>
+                  <option value="es">Español</option>
+                </select>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <div className="section-header">
+                <BookOpen size={20} />
+                <h2>{t('settings.reading.title')}</h2>
+              </div>
+              <div className="setting-option">
+                <div className="setting-info">
+                  <span className="setting-label">{t('settings.reading.open_direct')}</span>
+                  <span className="setting-description">{t('settings.reading.open_direct_desc')}</span>
                 </div>
                 <input 
                   type="checkbox" 
@@ -501,8 +619,8 @@ const Settings: React.FC<SettingsProps> = ({
               </div>
               <div className="setting-option">
                 <div className="setting-info">
-                  <span className="setting-label">Launcher: Abrir directamente en el lector</span>
-                  <span className="setting-description">Saltar la vista de detalles al seleccionar un libro en el buscador (Ctrl+K)</span>
+                  <span className="setting-label">{t('settings.reading.launcher_open_direct')}</span>
+                  <span className="setting-description">{t('settings.reading.launcher_open_direct_desc')}</span>
                 </div>
                 <input 
                   type="checkbox" 
@@ -533,7 +651,7 @@ const Settings: React.FC<SettingsProps> = ({
                 <h2>About</h2>
               </div>
               <div className="about-info">
-                <p><strong>SimpleQuil</strong> - v1.0.0</p>
+                <p><strong>SimpleQuill</strong> - v1.0.0</p>
                 <p>Digital Library Manager built with Tauri and React.</p>
               </div>
             </section>

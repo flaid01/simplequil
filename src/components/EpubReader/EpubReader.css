@@ -776,6 +776,14 @@
   color: var(--accent);
 }
 
+.selection-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--reader-border);
+  align-self: center;
+  margin: 0 4px;
+}
+
 .highlight-btn.yellow { color: #eab308; }
 .highlight-btn.green  { color: #22c55e; }
 .highlight-btn.blue   { color: #3b82f6; }

@@ -16,6 +16,7 @@ import {
 import { Shelf } from '../../types';
 import './Sidebar.css';
 import React, { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface SidebarProps {
   onCategoryChange: (category: string) => void;
@@ -35,17 +36,18 @@ const Sidebar: React.FC<SidebarProps> = ({
   onCreateShelf,
 }) => {
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   const navItems = [
-    { id: 'all', icon: <Library size={18} />, label: 'Todos' },
-    { id: 'recent', icon: <History size={18} />, label: 'Leído recientemente' },
-    { id: 'favorites', icon: <Heart size={18} />, label: 'Favoritos' },
+    { id: 'all', icon: <Library size={18} />, label: t('sidebar.all') },
+    { id: 'recent', icon: <History size={18} />, label: t('sidebar.recent') },
+    { id: 'favorites', icon: <Heart size={18} />, label: t('sidebar.favorites') },
   ];
 
   const readingSections = [
-    { id: 'reading', icon: <BookOpen size={18} />, label: 'Leer' },
-    { id: 'read', icon: <CheckCircle size={18} />, label: 'Leídos' },
-    { id: 'deleted', icon: <Trash2 size={18} />, label: 'Borrado' },
+    { id: 'reading', icon: <BookOpen size={18} />, label: t('sidebar.reading') },
+    { id: 'read', icon: <CheckCircle size={18} />, label: t('sidebar.read') },
+    { id: 'deleted', icon: <Trash2 size={18} />, label: t('sidebar.deleted') },
   ];
 
   const formats = ['all', 'epub', 'pdf', 'cbz', 'mobi'];
@@ -58,11 +60,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const getFormatLabel = () => {
-    if (activeCategory === 'all') return 'Formatos: Todos';
+    if (activeCategory === 'all') return t('sidebar.formats_all');
     if (formats.includes(activeCategory)) {
-      return `Formato: ${activeCategory.toUpperCase()}`;
+      return t('sidebar.format_label', { format: activeCategory.toUpperCase() });
     }
-    return 'Formatos';
+    return t('sidebar.formats');
   };
 
   // Keyboard navigation within sidebar
@@ -90,7 +92,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       onKeyDown={handleKeyDown}
     >
       <div className="sidebar-header">
-        {!isCollapsed && <div className="sidebar-logo">SimpleQuil</div>}
+        {!isCollapsed && <div className="sidebar-logo">SimpleQuill</div>}
         <button className="collapse-toggle" onClick={onToggleCollapse} title="Toggle Sidebar (Ctrl+B)">
           {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>

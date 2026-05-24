@@ -9,7 +9,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Pause,
   Copy,
   Highlighter,
   MessageSquare,
@@ -198,9 +197,11 @@ interface SelectionMenuProps {
   onCopy: () => void;
   onAnnotate: () => void;
   onHighlight: (color: string) => void;
+  onFocusMode: () => void;
+  onTTS: () => void;
 }
 
-const SelectionMenu = memo(({ visible, x, y, onCopy, onAnnotate, onHighlight }: SelectionMenuProps) => {
+const SelectionMenu = memo(({ visible, x, y, onCopy, onAnnotate, onHighlight, onFocusMode, onTTS }: SelectionMenuProps) => {
   if (!visible) return null;
   return (
     <div
@@ -228,6 +229,13 @@ const SelectionMenu = memo(({ visible, x, y, onCopy, onAnnotate, onHighlight }: 
       </div>
       <button className="selection-btn" onClick={onAnnotate} title="Anotar">
         <MessageSquare size={16} />
+      </button>
+      <div className="selection-divider" />
+      <button className="selection-btn" onClick={onFocusMode} title="Modo Enfoque desde aquí">
+        <Focus size={16} />
+      </button>
+      <button className="selection-btn" onClick={onTTS} title="Escuchar desde aquí">
+        <Play size={16} />
       </button>
     </div>
   );
@@ -345,12 +353,12 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
   const [isChapterTransitioning, setIsChapterTransitioning] = useState(false);
   const [error, setError]                       = useState<string | null>(null);
   const [progress, setProgress]                 = useState(0);
-  const [fontSize, setFontSize] = useState(18);
-  const [lineHeight, setLineHeight] = useState(1.85);
+  const [fontSize, setFontSize] = useState<number>(parseInt(localStorage.getItem('reader_font_size') || '18') || 18);
+  const [lineHeight, setLineHeight] = useState<number>(parseFloat(localStorage.getItem('reader_line_height') || '1.85') || 1.85);
   const animationsEnabled = false;
   const isFullscreen = false;
   const [isFocusMode, setIsFocusMode]     = useState(false);
-  const [wpm, setWpm]                     = useState(250);
+  const [wpm, setWpm]                     = useState<number>(parseInt(localStorage.getItem('reader_focus_wpm') || '250') || 250);
   const [rsvpIndex, setRsvpIndex]         = useState(0);
   const [isRsvpPlaying, setIsRsvpPlaying] = useState(false);
   const [tokens, setTokens]               = useState<(string | { type: 'image', src: string })[]>([]);  
@@ -376,7 +384,7 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
   const [imgPosition, setImgPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [selectionMenu, setSelectionMenu] = useState<{ visible: boolean; x: number; y: number; text: string; }>({ visible: false, x: 0, y: 0, text: '' });
+  const [selectionMenu, setSelectionMenu] = useState<{ visible: boolean; x: number; y: number; text: string; ttsIndex?: number; tokenIndex?: number; }>({ visible: false, x: 0, y: 0, text: '' });
 
   // 3. Helper Functions
   const playTick = useCallback(() => {
@@ -989,8 +997,40 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
       if (selection && selection.rangeCount > 0) {
         const text = selection.toString().trim();
         if (text.length > 0) {
-          const rect = selection.getRangeAt(0).getBoundingClientRect();
-          setSelectionMenu({ visible: true, x: rect.left + rect.width / 2, y: rect.top, text });
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          
+          let ttsIndex = -1;
+          const startNode = range.startContainer;
+          if (startNode) {
+            let targetNode = startNode;
+            if (startNode.nodeType !== Node.TEXT_NODE) {
+              targetNode = startNode.childNodes[range.startOffset] || startNode;
+            }
+            const parent = targetNode.nodeType === Node.TEXT_NODE ? targetNode.parentElement : targetNode as HTMLElement;
+            const ttsSentence = parent?.closest('.tts-sentence');
+            if (ttsSentence) {
+              ttsIndex = parseInt(ttsSentence.getAttribute('data-index') || '-1');
+              console.log("[Selection] Found tts-sentence index:", ttsIndex);
+            } else {
+              // Fallback: look for the first tts-sentence inside the target if we selected a block
+              const firstChildSentence = (targetNode as HTMLElement).querySelector?.('.tts-sentence');
+              if (firstChildSentence) {
+                ttsIndex = parseInt(firstChildSentence.getAttribute('data-index') || '-1');
+                console.log("[Selection] Found fallback tts-sentence index:", ttsIndex);
+              } else {
+                console.log("[Selection] No tts-sentence found near selection.");
+              }
+            }
+          }
+
+          setSelectionMenu({ 
+            visible: true, 
+            x: rect.left + rect.width / 2, 
+            y: rect.top, 
+            text,
+            ttsIndex: ttsIndex >= 0 ? ttsIndex : undefined
+          });
         }
       }
     };
@@ -1007,7 +1047,10 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
     if (isFocusMode && currentChapterHtml) {
       const newTokens = tokenizeHtml(currentChapterHtml);
       setTokens(newTokens);
-      setRsvpIndex(0);
+      // Only reset to 0 if we aren't already at a specific index (like one from a selection)
+      if (rsvpIndex === 0) {
+        setRsvpIndex(0);
+      }
     }
   }, [isFocusMode, currentChapterHtml, tokenizeHtml]);
 
@@ -1034,7 +1077,7 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
     return () => { if (interval) clearInterval(interval); };
   }, [isRsvpPlaying, tokens.length, wpm, playTick, currentChapterIndex, spine, loadChapter]);
 
-  const handleReadAloud = useCallback(() => {
+  const handleReadAloud = useCallback((forcedStartIndex?: number) => {
     if (isPlaying) { 
       setIsPlaying(false); 
       isPlayingRef.current = false; 
@@ -1060,8 +1103,10 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
         isPlayingRef.current = true;
         ttsSessionIdRef.current++; 
         
-        let startIndex = ttsQueueIndex;
-        if (!hasTtsStartedRef.current) {
+        let startIndex = forcedStartIndex !== undefined ? forcedStartIndex : ttsQueueIndex;
+        
+        // Only calculate based on visibility if we're starting fresh (no forced index and no previous start)
+        if (forcedStartIndex === undefined && !hasTtsStartedRef.current) {
           const firstVisible = sentenceNodes.find(node => {
             const rect = node.getBoundingClientRect();
             const viewport = surface.parentElement?.getBoundingClientRect();
@@ -1070,8 +1115,14 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
           if (firstVisible) {
             startIndex = parseInt((firstVisible as HTMLElement).dataset.index || '0');
           }
-          hasTtsStartedRef.current = true;
         }
+        
+        if (forcedStartIndex !== undefined) {
+          hasTtsStartedRef.current = true;
+          // Important: mark this chapter as "in progress" so the useEffect doesn't reset it to 0
+          lastPlayedChapterRef.current = spine[currentChapterIndex]?.id;
+        }
+        
         playNextInQueue(startIndex, ttsSessionIdRef.current);
       } else {
         window.speechSynthesis.cancel(); 
@@ -1089,7 +1140,7 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
         ttsSessionIdRef.current++;
       }
     }
-  }, [isPlaying, ttsVoice, ttsQueueIndex, playNextInQueue, handleNext]);
+  }, [isPlaying, ttsVoice, ttsQueueIndex, playNextInQueue, handleNext, currentChapterIndex, spine]);
 
   useEffect(() => {
     const chapterId = spine[currentChapterIndex]?.id;
@@ -1100,9 +1151,11 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
         .filter(s => s.length > 0);
       
       if (sentences.length > 0) { 
+        console.log("[TTS] Chapter transition or auto-start for chapter:", chapterId);
         lastPlayedChapterRef.current = chapterId;
         ttsQueueRef.current = sentences; 
         ttsSessionIdRef.current++; 
+        // Only jump to 0 if we're not using a forced starting point (handled in handleReadAloud)
         playNextInQueue(0, ttsSessionIdRef.current); 
       }
     }
@@ -1118,6 +1171,9 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
 
   useEffect(() => { localStorage.setItem(`notes_${book.id}`, notesContent); }, [notesContent, book.id]);
   useEffect(() => { localStorage.setItem('notes_sidebar_width', notesSidebarWidth.toString()); }, [notesSidebarWidth]);
+  useEffect(() => { localStorage.setItem('reader_font_size', fontSize.toString()); }, [fontSize]);
+  useEffect(() => { localStorage.setItem('reader_line_height', lineHeight.toString()); }, [lineHeight]);
+  useEffect(() => { localStorage.setItem('reader_focus_wpm', wpm.toString()); }, [wpm]);
   useEffect(() => {
     localStorage.setItem('tts_voice', ttsVoice);
     localStorage.setItem('tts_pitch', ttsPitch.toString());
@@ -1131,6 +1187,48 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
   useEffect(() => { ttsVoiceRef.current = ttsVoice; }, [ttsVoice]);
   useEffect(() => { ttsRateRef.current = ttsRate; }, [ttsRate]);
   useEffect(() => { ttsVolumeRef.current = ttsVolume; }, [ttsVolume]);
+
+  const handleStartTTSAtSelection = useCallback(() => {
+    console.log("[Playback] Starting TTS at index:", selectionMenu.ttsIndex);
+    if (selectionMenu.ttsIndex !== undefined) {
+      setTtsQueueIndex(selectionMenu.ttsIndex);
+      if (!isPlaying) handleReadAloud(selectionMenu.ttsIndex);
+      else playNextInQueue(selectionMenu.ttsIndex, ttsSessionIdRef.current);
+      
+      setSelectionMenu(prev => ({ ...prev, visible: false }));
+      window.getSelection()?.removeAllRanges();
+    }
+  }, [selectionMenu, isPlaying, handleReadAloud, playNextInQueue]);
+
+  const handleStartFocusAtSelection = useCallback(() => {
+    console.log("[Playback] Starting Focus at index:", selectionMenu.ttsIndex);
+    const chapterHtml = currentChapterHtml;
+    if (!chapterHtml) return;
+
+    const newTokens = tokenizeHtml(chapterHtml);
+    setTokens(newTokens);
+    
+    let index = 0;
+    if (selectionMenu.ttsIndex !== undefined) {
+      const surface = surfaceRef.current;
+      if (surface) {
+        const previousSentences = Array.from(surface.querySelectorAll('.tts-sentence'))
+          .slice(0, selectionMenu.ttsIndex);
+        const wordCount = previousSentences.reduce((acc, s) => {
+          return acc + (s.textContent || '').split(/\s+/).filter(w => w.length > 0).length;
+        }, 0);
+        index = wordCount;
+        console.log("[Playback] Focus word index calculated:", index);
+      }
+    }
+    
+    setRsvpIndex(index);
+    setIsFocusMode(true);
+    setIsRsvpPlaying(false);
+    
+    setSelectionMenu(prev => ({ ...prev, visible: false }));
+    window.getSelection()?.removeAllRanges();
+  }, [selectionMenu, currentChapterHtml, tokenizeHtml]);
 
   const handleSaveHighlight = useCallback(async (color: string) => {
     if (!selectionMenu.text || !dbRef.current) return;
@@ -1259,7 +1357,7 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
           
           <div style={{ position: 'relative' }}>
             <div className="reader-toolbar-group playback-control-group">
-              <button className={`reader-btn ${isPlaying ? 'active' : ''}`} onClick={handleReadAloud}>{isPlaying ? <Pause size={20} /> : <Volume2 size={20} />}</button>
+              <button className={`reader-btn ${isPlaying ? 'active' : ''}`} onClick={() => handleReadAloud()}><Volume2 size={20} /></button>
               <button className={`reader-btn playback-settings-btn ${showTtsDropdown ? 'active' : ''}`} onClick={() => setShowTtsDropdown(!showTtsDropdown)} title="Configuración de Voz"><Settings size={16} /></button>
             </div>
             <TtsDropdown 
@@ -1393,6 +1491,8 @@ const EpubReader: React.FC<EpubReaderProps> = ({ book, onClose, theme, setTheme,
               window.getSelection()?.removeAllRanges(); 
             }} 
             onHighlight={handleSaveHighlight} 
+            onFocusMode={handleStartFocusAtSelection}
+            onTTS={handleStartTTSAtSelection}
           />
           {copyFeedback && <div className="copy-feedback-toast">{copyFeedback}</div>}
           {isFocusMode && (

@@ -450,22 +450,8 @@ fn clear_tts_cache(app_handle: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn get_piper_voices(app_handle: tauri::AppHandle) -> Result<Vec<String>, String> {
     let mut all_voices = Vec::new();
-    let mut checked_dirs = Vec::new();
-
-    checked_dirs.push(app_handle.path().app_data_dir().unwrap_or_default().join("voices"));
-
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            checked_dirs.push(exe_dir.join("voices"));
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        checked_dirs.push(cwd.join("voices"));
-        checked_dirs.push(cwd.join("src-tauri").join("voices"));
-    }
-
-    for voices_dir in checked_dirs {
+    
+    for voices_dir in get_all_voices_dirs(&app_handle) {
         if voices_dir.exists() {
             if let Ok(entries) = fs::read_dir(voices_dir) {
                 for entry in entries.flatten() {
@@ -473,7 +459,13 @@ fn get_piper_voices(app_handle: tauri::AppHandle) -> Result<Vec<String>, String>
                     if path.extension().and_then(|s| s.to_str()) == Some("onnx") {
                         if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
                             let name_str = name.to_string();
-                            if !all_voices.contains(&name_str) {
+                            
+                            // Only include if a .json also exists
+                            let dir = path.parent().unwrap();
+                            let json_path1 = dir.join(format!("{}.json", name_str));
+                            let json_path2 = dir.join(format!("{}.onnx.json", name_str));
+                            
+                            if (json_path1.exists() || json_path2.exists()) && !all_voices.contains(&name_str) {
                                 all_voices.push(name_str);
                             }
                         }
@@ -488,36 +480,28 @@ fn get_piper_voices(app_handle: tauri::AppHandle) -> Result<Vec<String>, String>
 
 #[tauri::command]
 fn delete_piper_voice(app_handle: tauri::AppHandle, name: String) -> Result<(), String> {
-    let mut checked_dirs = Vec::new();
-    checked_dirs.push(app_handle.path().app_data_dir().unwrap_or_default().join("voices"));
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            checked_dirs.push(exe_dir.join("voices"));
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        checked_dirs.push(cwd.join("voices"));
-        checked_dirs.push(cwd.join("src-tauri").join("voices"));
-    }
-
     let mut deleted = false;
-    for voices_dir in checked_dirs {
+    for voices_dir in get_all_voices_dirs(&app_handle) {
         let onnx_path = voices_dir.join(&name);
-        let json_path = voices_dir.join(format!("{}.json", name));
+        let json_path1 = voices_dir.join(format!("{}.json", name));
+        let json_path2 = voices_dir.join(format!("{}.onnx.json", name));
 
         if onnx_path.exists() {
-            fs::remove_file(onnx_path).map_err(|e| e.to_string())?;
+            let _ = fs::remove_file(onnx_path);
             deleted = true;
         }
-        if json_path.exists() {
-            let _ = fs::remove_file(json_path);
+        if json_path1.exists() {
+            let _ = fs::remove_file(json_path1);
+        }
+        if json_path2.exists() {
+            let _ = fs::remove_file(json_path2);
         }
     }
 
     if deleted {
         Ok(())
     } else {
-        Err("Voice file not found".to_string())
+        Err("No se encontró el archivo de voz para eliminar.".to_string())
     }
 }
 
@@ -540,8 +524,17 @@ async fn download_piper_model(app_handle: tauri::AppHandle, name: String, url: S
 }
 
 async fn download_file_with_progress(app_handle: &tauri::AppHandle, url: &str, path: &Path, msg_prefix: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("SimpleQuil-App")
+        .build()
+        .map_err(|e| e.to_string())?;
+
     let response = client.get(url).send().await.map_err(|e: reqwest::Error| e.to_string())?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Error de descarga: HTTP {}", response.status()));
+    }
+
     let total_size = response.content_length().unwrap_or(0);
 
     let mut file = File::create(path).map_err(|e: std::io::Error| e.to_string())?;
@@ -614,6 +607,7 @@ fn strip_html_tags(html: &str) -> String {
 }
 
 async fn run_piper_command(
+    app_handle: &tauri::AppHandle,
     text: &str,
     model_path: &Path,
     output_path: &Path,
@@ -627,47 +621,42 @@ async fn run_piper_command(
     
     fs::write(&input_path, text).map_err(|e| format!("Error escribiendo entrada temporal: {}", e))?;
 
-    let mut piper_path = std::env::current_dir().unwrap_or_default()
-        .join("src-tauri").join("target").join("debug").join("piper.exe");
+    let bin_dir = get_piper_bin_dir(app_handle);
+    let exe_name = if cfg!(windows) { "piper.exe" } else { "piper" };
+    let piper_exe = bin_dir.join(exe_name);
 
-    if !piper_path.exists() {
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                piper_path = exe_dir.join("piper.exe");
+    // Prepare the command
+    let mut command = if piper_exe.exists() {
+        Command::new(&piper_exe)
+    } else {
+        // Fallback: try "piper" in system PATH
+        Command::new("piper")
+    };
+
+    // Set working directory if using our bundled piper
+    if piper_exe.exists() {
+        command.current_dir(&bin_dir);
+        
+        // Check for espeak-ng-data relative to piper.exe
+        let espeak_dir = bin_dir.join("espeak-ng-data");
+        if espeak_dir.exists() {
+            command.arg("--espeak_data").arg(&espeak_dir);
+        }
+        
+        // On Windows, add piper's dir to PATH so it can find its DLLs
+        #[cfg(windows)]
+        {
+            let path_var = std::env::var("PATH").unwrap_or_default();
+            let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
+            paths.insert(0, bin_dir.clone());
+            if let Ok(new_path) = std::env::join_paths(paths) {
+                command.env("PATH", new_path);
             }
         }
     }
 
-    if !piper_path.exists() {
-        return Err("piper.exe not found. Please ensure it is in the bin folder.".to_string());
-    }
-
-    let piper_dir = piper_path.parent().ok_or("Failed to get piper directory")?;
-    let espeak_dir = piper_dir.join("bin").join("espeak-ng-data");
-
-    let mut command = Command::new(&piper_path);
-    command.current_dir(&piper_dir);
-
-    if espeak_dir.exists() {
-        command.arg("--espeak_data").arg(&espeak_dir);
-    }
-
     if let Some(scale) = length_scale {
         command.arg("--length_scale").arg(scale.to_string());
-    }
-
-    #[cfg(windows)]
-    {
-        let path_var = std::env::var("PATH").unwrap_or_default();
-        let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
-        paths.insert(0, piper_dir.to_path_buf());
-        let bin_dir = piper_dir.join("bin");
-        if bin_dir.exists() {
-            paths.insert(1, bin_dir);
-        }
-        if let Ok(new_path) = std::env::join_paths(paths) {
-            command.env("PATH", new_path);
-        }
     }
 
     let input_file = File::open(&input_path).map_err(|e| format!("Failed to open input file: {}", e))?;
@@ -678,32 +667,32 @@ async fn run_piper_command(
         .arg("--output_file")
         .arg(output_path)
         .stdin(input_file)
-        .output()
-        .map_err(|e| format!("Failed to run piper: {}", e))?;
-
+        .output();
+    
     let _ = fs::remove_file(input_path);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Piper failed with status: {} - Stderr: {}", output.status, stderr));
+    match output {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("Piper failed with status: {} - Stderr: {}", out.status, stderr));
+            }
+            Ok(())
+        },
+        Err(e) => {
+            if !piper_exe.exists() {
+                Err("Motor Piper no encontrado. Por favor, instálalo desde Configuración > TTS.".to_string())
+            } else {
+                Err(format!("Error ejecutando piper: {}", e))
+            }
+        }
     }
-
-    Ok(())
 }
 
 #[tauri::command]
 async fn speak_with_piper(app_handle: tauri::AppHandle, text: String, model: String) -> Result<String, String> {
-    let voices_dir = get_voices_dir(&app_handle);
-    let model_path = voices_dir.join(&model);
-    
-    if !model_path.exists() {
-        return Err(format!("Model not found at {:?}", model_path));
-    }
-
-    let json_path = voices_dir.join(format!("{}.json", model));
-    if !json_path.exists() {
-        return Err(format!("Falta el archivo de configuración (.json) para el modelo: {}", model));
-    }
+    let (model_path, _) = find_voice_files(&app_handle, &model)
+        .ok_or_else(|| format!("No se encontraron los archivos del modelo: {}", model))?;
 
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
@@ -718,7 +707,7 @@ async fn speak_with_piper(app_handle: tauri::AppHandle, text: String, model: Str
     let output_path = cache_dir.join(&filename);
 
     if !output_path.exists() {
-        run_piper_command(&text, &model_path, &output_path, None).await?;
+        run_piper_command(&app_handle, &text, &model_path, &output_path, None).await?;
     }
 
     let mut buffer = Vec::new();
@@ -747,12 +736,8 @@ async fn export_audiobook(
     export_lyrics: bool,
     output_path: String,
 ) -> Result<(), String> {
-    let voices_dir = get_voices_dir(&app_handle);
-    let model_path = voices_dir.join(&model_name);
-    
-    if !model_path.exists() {
-        return Err(format!("Modelo no encontrado: {}", model_name));
-    }
+    let (model_path, _) = find_voice_files(&app_handle, &model_name)
+        .ok_or_else(|| format!("No se encontraron los archivos del modelo: {}", model_name))?;
 
     let length_scale = 1.0 / speed;
     let total_chapters = chapters.len();
@@ -780,8 +765,12 @@ async fn export_audiobook(
             text = text.replace("! ", "...! ");
         }
 
-        let temp_wav = std::env::temp_dir().join(format!("chapter_{}_{}.wav", i, chapter_id));
-        run_piper_command(&text, &model_path, &temp_wav, Some(length_scale)).await?;
+        let mut hasher = Sha256::new();
+        hasher.update(chapter_id.as_bytes());
+        let id_hash = hex::encode(hasher.finalize());
+        let temp_wav = std::env::temp_dir().join(format!("chapter_{}_{}.wav", i, &id_hash[..8]));
+        
+        run_piper_command(&app_handle, &text, &model_path, &temp_wav, Some(length_scale)).await?;
         temp_files.push(temp_wav);
     }
 
@@ -796,33 +785,41 @@ async fn export_audiobook(
 
     let mut final_file = File::create(&output_path).map_err(|e| format!("Error creando archivo final: {}", e))?;
     let mut total_data_size = 0u32;
+    let mut header_written = false;
 
-    for (i, temp_path) in temp_files.iter().enumerate() {
-        let mut f = File::open(temp_path).map_err(|e| e.to_string())?;
+    for temp_path in &temp_files {
+        let mut f = File::open(temp_path).map_err(|e| format!("Error abriendo archivo temporal: {}", e))?;
         let mut buffer = Vec::new();
-        f.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+        f.read_to_end(&mut buffer).map_err(|e| format!("Error leyendo archivo temporal: {}", e))?;
 
         if buffer.len() < 44 {
             continue;
         }
 
-        if i == 0 {
-            final_file.write_all(&buffer).map_err(|e: std::io::Error| e.to_string())?;
-            total_data_size = u32::from_le_bytes(buffer[40..44].try_into().unwrap());
+        let chunk_size = u32::from_le_bytes(buffer[40..44].try_into().unwrap_or([0,0,0,0]));
+
+        if !header_written {
+            final_file.write_all(&buffer).map_err(|e| format!("Error escribiendo cabecera: {}", e))?;
+            total_data_size = chunk_size;
+            header_written = true;
         } else {
-            let data_size = u32::from_le_bytes(buffer[40..44].try_into().unwrap());
-            final_file.write_all(&buffer[44..]).map_err(|e: std::io::Error| e.to_string())?;
-            total_data_size += data_size;
+            final_file.write_all(&buffer[44..]).map_err(|e| format!("Error escribiendo datos de audio: {}", e))?;
+            total_data_size += chunk_size;
         }
     }
 
+    if !header_written {
+        return Err("No se generó ningún audio válido para exportar.".to_string());
+    }
+
+    // Update WAV header with total sizes
     let total_riff_size = total_data_size + 36;
     
-    final_file.seek(std::io::SeekFrom::Start(4)).map_err(|e: std::io::Error| e.to_string())?;
-    final_file.write_all(&total_riff_size.to_le_bytes()).map_err(|e: std::io::Error| e.to_string())?;
+    final_file.seek(std::io::SeekFrom::Start(4)).map_err(|e| format!("Error actualizando tamaño RIFF: {}", e))?;
+    final_file.write_all(&total_riff_size.to_le_bytes()).map_err(|e| format!("Error escribiendo tamaño RIFF: {}", e))?;
     
-    final_file.seek(std::io::SeekFrom::Start(40)).map_err(|e: std::io::Error| e.to_string())?;
-    final_file.write_all(&total_data_size.to_le_bytes()).map_err(|e: std::io::Error| e.to_string())?;
+    final_file.seek(std::io::SeekFrom::Start(40)).map_err(|e| format!("Error actualizando tamaño data: {}", e))?;
+    final_file.write_all(&total_data_size.to_le_bytes()).map_err(|e| format!("Error escribiendo tamaño data: {}", e))?;
 
     for temp_path in temp_files {
         let _ = fs::remove_file(temp_path);
@@ -872,6 +869,127 @@ fn get_available_piper_models() -> Result<Vec<serde_json::Value>, String> {
         serde_json::json!({ "name": "ru_RU-irina-medium", "language": "Russian (Russia)", "quality": "Medium", "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx" }),
         serde_json::json!({ "name": "zh_CN-huayan-medium", "language": "Chinese (China)", "quality": "Medium", "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx" })
     ])
+}
+
+#[tauri::command]
+fn uninstall_piper_engine(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let bin_dir = get_piper_bin_dir(&app_handle);
+    if bin_dir.exists() {
+        fs::remove_dir_all(&bin_dir).map_err(|e| format!("Error eliminando el motor: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_book_shortcut(app_handle: tauri::AppHandle, id: String, title: String, book_path: String) -> Result<(), String> {
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::path::BaseDirectory;
+        let desktop_path = app_handle.path().resolve("", BaseDirectory::Desktop).map_err(|e| e.to_string())?;
+        
+        // Find the cover image in cache
+        let cache_dir = app_handle.path().app_cache_dir().map_err(|e| e.to_string())?;
+        let mut hasher = Sha256::new();
+        hasher.update(&book_path);
+        let hash = hex::encode(hasher.finalize());
+        let cached_cover = cache_dir.join("covers").join(format!("{}.img", hash));
+        
+        // We'll create a persistent icon file in app_data so the shortcut icon doesn't disappear
+        // if the cache is cleared, and we'll give it an .ico extension so Windows likes it better.
+        let icons_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?.join("shortcut_icons");
+        if !icons_dir.exists() {
+            let _ = fs::create_dir_all(&icons_dir);
+        }
+        
+        let icon_path = icons_dir.join(format!("{}.ico", id));
+        let mut icon_arg = String::new();
+
+        let mut cover_data = if cached_cover.exists() {
+            fs::read(&cached_cover).ok()
+        } else {
+            None
+        };
+
+        // If not in cache, try to extract it on the fly
+        if cover_data.is_none() {
+            let extension = Path::new(&book_path).extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let extracted = match extension.as_str() {
+                "epub" => epub_cover(&book_path).map(|(d, _)| d),
+                "cbz" => cbz_cover(&book_path).map(|(d, _)| d),
+                _ => None,
+            };
+            if let Some(data) = extracted {
+                // Save to cache for future use
+                let _ = fs::create_dir_all(cached_cover.parent().unwrap());
+                let _ = fs::write(&cached_cover, &data);
+                cover_data = Some(data);
+            }
+        }
+
+        if let Some(data) = cover_data {
+            // Attempt to load the image data and save it as an actual .ico file
+            if let Ok(img) = image::load_from_memory(&data) {
+                // Resize to standard icon size to ensure compatibility
+                let resized = img.resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
+                if let Ok(_) = resized.save_with_format(&icon_path, image::ImageFormat::Ico) {
+                    icon_arg = format!("; $s.IconLocation='{}'", icon_path.to_string_lossy());
+                } else if let Ok(_) = fs::write(&icon_path, &data) {
+                    icon_arg = format!("; $s.IconLocation='{}'", icon_path.to_string_lossy());
+                }
+            } else if let Ok(_) = fs::write(&icon_path, &data) {
+                icon_arg = format!("; $s.IconLocation='{}'", icon_path.to_string_lossy());
+            }
+        }
+        
+        // Sanitize title for filename
+        let safe_title = title.chars().filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_').collect::<String>();
+        let shortcut_path = desktop_path.join(format!("{}.lnk", safe_title));
+        
+        let powershell_script = format!(
+            "$s=(New-Object -COM WScript.Shell).CreateShortcut('{}'); $s.TargetPath='{}'; $s.Arguments='--open-book \"{}\"'{}; $s.Save()",
+            shortcut_path.to_string_lossy(),
+            exe_path.to_string_lossy(),
+            id,
+            icon_arg
+        );
+        
+        let output = std::process::Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(&powershell_script)
+            .output()
+            .map_err(|e| format!("Error ejecutando PowerShell: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Error creando acceso directo: {}", stderr));
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Err("La creación de accesos directos solo está soportada en Windows por ahora.".to_string());
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn is_directory(path: &str) -> bool {
+    Path::new(path).is_dir()
+}
+
+#[tauri::command]
+fn get_startup_book() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--open-book" && i + 1 < args.len() {
+            return Some(args[i + 1].clone());
+        }
+    }
+    None
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -952,6 +1070,16 @@ pub fn run() {
     ];
 
     tauri::Builder::default()
+        .setup(|app| {
+            let args: Vec<String> = std::env::args().collect();
+            for (i, arg) in args.iter().enumerate() {
+                if arg == "--open-book" && i + 1 < args.len() {
+                    let book_id = args[i + 1].clone();
+                    let _ = app.emit("open-book", book_id);
+                }
+            }
+            Ok(())
+        })
         .register_uri_scheme_protocol("quil-lib", |app, request| {
             let uri_str = request.uri().to_string();
             
@@ -1076,6 +1204,12 @@ pub fn run() {
             delete_piper_voice,
             speak_with_piper,
             clear_tts_cache,
+            is_piper_engine_installed,
+            download_piper_engine,
+            create_book_shortcut,
+            uninstall_piper_engine,
+            get_startup_book,
+            is_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1123,18 +1257,134 @@ fn mime_from_path(path: &str) -> &'static str {
     else { "application/octet-stream" }
 }
 
-fn get_voices_dir(_app_handle: &tauri::AppHandle) -> std::path::PathBuf {
-    if let Ok(cwd) = std::env::current_dir() {
-        return cwd.join("voices");
+fn get_voices_dir(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
+    app_handle.path().app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("voices")
+}
+
+fn get_piper_bin_dir(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
+    app_handle.path().app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("bin")
+        .join("piper")
+}
+
+#[tauri::command]
+fn is_piper_engine_installed(app_handle: tauri::AppHandle) -> bool {
+    let bin_dir = get_piper_bin_dir(&app_handle);
+    let exe_name = if cfg!(windows) { "piper.exe" } else { "piper" };
+    let piper_exe = bin_dir.join(exe_name);
+    let espeak_dir = bin_dir.join("espeak-ng-data");
+    
+    piper_exe.exists() && espeak_dir.exists()
+}
+
+#[tauri::command]
+async fn download_piper_engine(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let bin_dir = get_piper_bin_dir(&app_handle);
+    if !bin_dir.exists() {
+        fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
     }
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            return exe_dir.join("voices");
+
+    let url = if cfg!(windows) {
+        "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
+    } else {
+        return Err("OS no soportado para descarga automática de Piper en este momento. Por favor, instálalo manualmente en la carpeta bin/piper.".to_string());
+    };
+
+    // Download to a temp file
+    let temp_zip = bin_dir.join("piper_download.zip");
+    download_file_with_progress(&app_handle, url, &temp_zip, "Descargando motor Piper...").await?;
+
+    // Extract
+    {
+        let file = File::open(&temp_zip).map_err(|e| format!("Error abriendo zip descargado: {}", e))?;
+        let mut archive = ZipArchive::new(file).map_err(|e| format!("Error leyendo archivo Zip: {}. Es posible que la descarga haya fallado.", e))?;
+        
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            
+            // The zip contains a 'piper/' folder, we want to extract its contents directly into bin_dir
+            // or handle the 'piper/' prefix.
+            let enclosed_name = file.enclosed_name().ok_or("Invalid file name in zip")?;
+            
+            // Skip the top-level 'piper/' directory entry if it exists
+            if enclosed_name.as_os_str() == "piper" || enclosed_name.as_os_str() == "piper/" {
+                continue;
+            }
+
+            // Remove 'piper/' prefix if present
+            let outpath = if enclosed_name.starts_with("piper/") {
+                bin_dir.join(enclosed_name.strip_prefix("piper/").unwrap())
+            } else if enclosed_name.starts_with("piper\\") {
+                bin_dir.join(enclosed_name.strip_prefix("piper\\").unwrap())
+            } else {
+                bin_dir.join(enclosed_name)
+            };
+
+            if (*file.name()).ends_with('/') {
+                fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+                    }
+                }
+                let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            }
         }
     }
-    std::path::PathBuf::from("voices")
+
+    // Clean up
+    let _ = fs::remove_file(temp_zip);
+
+    Ok(())
 }
 
 fn get_tts_cache_dir(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
     app_handle.path().app_cache_dir().unwrap_or_default().join("tts_cache")
+}
+
+fn get_all_voices_dirs(app_handle: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    
+    // 1. App Data (preferred for new downloads)
+    if let Ok(data_dir) = app_handle.path().app_data_dir() {
+        dirs.push(data_dir.join("voices"));
+    }
+
+    // 2. Next to executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            dirs.push(exe_dir.join("voices"));
+        }
+    }
+
+    // 3. Current directory
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs.push(cwd.join("voices"));
+        dirs.push(cwd.join("src-tauri").join("voices"));
+    }
+
+    dirs
+}
+
+fn find_voice_files(app_handle: &tauri::AppHandle, name: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    for dir in get_all_voices_dirs(app_handle) {
+        let onnx_path = dir.join(name);
+        // Check for both name.json and name.onnx.json
+        let json_path1 = dir.join(format!("{}.json", name));
+        let json_path2 = dir.join(format!("{}.onnx.json", name));
+        
+        if onnx_path.exists() {
+            if json_path1.exists() {
+                return Some((onnx_path, json_path1));
+            } else if json_path2.exists() {
+                return Some((onnx_path, json_path2));
+            }
+        }
+    }
+    None
 }

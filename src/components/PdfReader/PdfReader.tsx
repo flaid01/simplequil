@@ -10,7 +10,15 @@ interface PdfReaderProps {
 }
 
 const PdfReader: React.FC<PdfReaderProps> = ({ book, onClose }) => {
-  const pdfUrl = convertFileSrc(book.path);
+  const [url, setUrl] = React.useState<string>("");
+
+  React.useEffect(() => {
+    // Add a safety delay to ensure the local server is ready
+    const timer = setTimeout(() => {
+      setUrl(convertFileSrc(book.path));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [book.path]);
 
   return (
     <div className="pdf-reader-container">
@@ -27,11 +35,15 @@ const PdfReader: React.FC<PdfReaderProps> = ({ book, onClose }) => {
       </header>
       
       <main className="pdf-content">
-        <iframe 
-          src={`${pdfUrl}#toolbar=1&navpanes=1&view=FitH`}
-          title={book.title}
-          className="pdf-frame"
-        />
+        {url ? (
+          <iframe 
+            src={`${url}#toolbar=1&navpanes=1&view=FitH`}
+            title={book.title}
+            className="pdf-frame"
+          />
+        ) : (
+          <div className="pdf-loading">Cargando visor...</div>
+        )}
       </main>
     </div>
   );

@@ -51,6 +51,15 @@
   flex: 1;
   overflow: hidden;
   background-color: #525659; /* Standard PDF viewer background */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-loading {
+  color: white;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.1rem;
 }
 
 .pdf-frame {

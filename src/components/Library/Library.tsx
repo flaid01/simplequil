@@ -2,8 +2,9 @@ import React, { useCallback, useState, useRef, useEffect, useMemo, memo } from '
 import { Book, ViewMode, Shelf, Series } from '../../types';
 import BookCard from '../BookCard/BookCard';
 import BookCover from './BookCover';
-import { FilePlus, FolderPlus, Trash2, Heart, RefreshCcw, X, Check, Folder, ArrowLeft, Layers } from 'lucide-react';
+import { FilePlus, FolderPlus, Trash2, Heart, RefreshCcw, X, Check, Folder, ArrowLeft, Layers, Link as LinkIcon } from 'lucide-react';
 import { Virtuoso, VirtuosoGrid, VirtuosoHandle, VirtuosoGridHandle } from 'react-virtuoso';
+import { invoke } from '@tauri-apps/api/core';
 import './Library.css';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -186,20 +187,20 @@ const Library: React.FC<LibraryProps> = ({
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0 || (e.target as HTMLElement).closest('.virtual-item-container') || (e.target as HTMLElement).closest('button')) return;
       const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      if (!rect || !containerRef.current) return;
       isDragging.current = true;
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const x = e.clientX - rect.left + containerRef.current.scrollLeft;
+      const y = e.clientY - rect.top + containerRef.current.scrollTop;
       setSelectionBox({ x1: x, y1: y, x2: x, y2: y });
       if (!e.ctrlKey && !e.metaKey && !e.shiftKey) setSelectedIds(new Set());
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current || !selectionBox) return;
+      if (!isDragging.current || !selectionBox || !containerRef.current) return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const x = e.clientX - rect.left + containerRef.current.scrollLeft;
+      const y = e.clientY - rect.top + containerRef.current.scrollTop;
       setSelectionBox(prev => prev ? { ...prev, x2: x, y2: y } : null);
       updateSelection(selectionBox.x1, selectionBox.y1, x, y, e.ctrlKey || e.metaKey || e.shiftKey);
     };
@@ -211,10 +212,16 @@ const Library: React.FC<LibraryProps> = ({
       const right = Math.max(x1, x2), bottom = Math.max(y1, y2);
       const containerRect = containerRef.current?.getBoundingClientRect();
       const newSelected = keepExisting ? new Set(selectedIds) : new Set<string>();
+      if (!containerRef.current || !containerRect) return;
+      
+      const scrollTop = containerRef.current.scrollTop;
+      const scrollLeft = containerRef.current.scrollLeft;
+
       containerRef.current?.querySelectorAll('.virtual-item-container').forEach(item => {
         const r = item.getBoundingClientRect();
-        if (!containerRect) return;
-        const iTop = r.top - containerRect.top, iLeft = r.left - containerRect.left;
+        const iTop = r.top - containerRect.top + scrollTop;
+        const iLeft = r.left - containerRect.left + scrollLeft;
+        
         if (!(iLeft > right || iLeft + r.width < left || iTop > bottom || iTop + r.height < top)) {
           const id = item.getAttribute('data-id');
           if (id) newSelected.add(id);
@@ -270,6 +277,25 @@ const Library: React.FC<LibraryProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [focusedIndex, items, viewMode, onBookClick, onSeriesClick, toggleSelection, selectedIds.size, columns]);
+
+  const onCreateShortcut = async () => {
+    const ids = Array.from(selectedIds);
+    for (const id of ids) {
+      const item = items.find(i => i.type === 'book' && i.data.id === id);
+      if (item && item.type === 'book') {
+        try {
+          await invoke('create_book_shortcut', { 
+            id: item.data.id, 
+            title: item.data.title,
+            bookPath: item.data.path
+          });
+        } catch (err) {
+          console.error('Error creating shortcut:', err);
+        }
+      }
+    }
+    setSelectedIds(new Set());
+  };
 
   const renderItem = useCallback((index: number, item: LibraryItem) => {
     if (item.type === 'series') {
@@ -415,6 +441,7 @@ const Library: React.FC<LibraryProps> = ({
                 <button onClick={() => onBulkFavorite(true)} title="Añadir a favoritos"><Heart size={18} /><span>Favorito</span></button>
                 <button onClick={onOpenMoveModal} title="Mover a estantería"><Folder size={18} /><span>Estantería</span></button>
                 <button onClick={onOpenSeriesModal} title="Añadir a serie"><Layers size={18} /><span>Serie</span></button>
+                <button onClick={onCreateShortcut} title="Crear acceso directo"><LinkIcon size={18} /><span>Acceso Directo</span></button>
                 <button onClick={onBulkTrash} title="Mover a la papelera"><Trash2 size={18} /><span>Borrar</span></button>
               </>
             )}

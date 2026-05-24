@@ -12,6 +12,7 @@ import CommandPalette from "./components/CommandPalette/CommandPalette";
 import { Book, ViewMode, SortOption, FileType, Shelf, ThemeType, Series } from "./types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Database from "@tauri-apps/plugin-sql";
 import ShelfSelectorModal from "./components/Library/ShelfSelectorModal";
 import ShelfCreationModal from "./components/Library/ShelfCreationModal";
@@ -19,6 +20,7 @@ import SeriesSelectorModal from "./components/Library/SeriesSelectorModal";
 import ShelvesList from "./components/Library/ShelvesList";
 import SeriesDetail from "./components/Library/SeriesDetail";
 import { AnimatePresence } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import "./App.css";
 
 // DB Mapping Utilities
@@ -62,6 +64,7 @@ function App() {
   const [theme, setTheme] = useState<ThemeType>('light');
   const [openDirectlyToReader, setOpenDirectlyToReader] = useState(false);
   const [launcherOpenDirectly, setLauncherOpenDirectly] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -72,6 +75,13 @@ function App() {
   
   const dbRef = useRef<Database | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const booksRef = useRef<Book[]>([]);
+
+  useEffect(() => {
+    booksRef.current = books;
+  }, [books]);
+
+  const { t } = useTranslation();
 
   const toggleSelection = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -267,7 +277,7 @@ function App() {
 
   const handleDeleteSeries = async (id: string) => {
     if (!dbRef.current) return;
-    if (!window.confirm("¿Estás seguro de que quieres eliminar esta serie? Los libros se mantendrán pero dejarán de estar agrupados.")) return;
+    if (!window.confirm(t('common.confirm_delete_series'))) return;
     
     setSeries(prev => prev.filter(s => s.id !== id));
     setBooks(prev => prev.map(b => b.seriesId === id ? { ...b, seriesId: undefined, seriesName: undefined } : b));
@@ -291,120 +301,6 @@ function App() {
     if (dbRef.current) {
       dbRef.current.execute("UPDATE books SET is_favorite = ? WHERE id = ?", [newFavoriteStatus ? 1 : 0, id]);
     }
-  };
-
-  const handleImportFile = async () => {
-    try {
-      const selected = await open({
-        multiple: true,
-        filters: [{ name: 'Books', extensions: ['epub', 'pdf', 'mobi', 'cbz'] }]
-      });
-      
-      if (!selected || !Array.isArray(selected)) return;
-      const existingPaths = new Set(books.map(b => b.path));
-      const uniqueSelected = selected.filter(p => !existingPaths.has(p));
-
-      const newBooks: Book[] = await Promise.all(uniqueSelected.map(async (fullPath) => {
-        try {
-          const metadata = await invoke("scan_file", { path: fullPath }) as any;
-          return {
-            ...metadata,
-            coverImage: metadata.cover_image,
-            fileType: metadata.file_type,
-            dateAdded: metadata.date_added,
-            lastOpened: metadata.last_opened,
-            isFavorite: metadata.is_favorite,
-            isDeleted: metadata.is_deleted,
-            shelfId: metadata.category || 'all',
-          } as Book;
-        } catch (e) {
-          console.error(`Error scanning file ${fullPath}:`, e);
-          return null;
-        }
-      })).then(results => results.filter((b): b is Book => b !== null));
-
-      if (newBooks.length > 0) {
-        setBooks(prev => [...newBooks, ...prev]);
-        saveBooksToDb(newBooks);
-      }
-    } catch (err) { console.error("Dialog error:", err); }
-  };
-
-  const handleImportFolder = async () => {
-    try {
-      const selected = await open({ directory: true, multiple: false });
-      if (selected && typeof selected === "string") {
-        const results = await invoke("scan_directory", { path: selected }) as any[];
-
-        // Upsert any discovered series to the DB and local state
-        const seriesMap = new Map<string, string>(); // id -> name
-        results.forEach((m: any) => {
-          if (m.series_id && m.series_name) {
-            seriesMap.set(m.series_id, m.series_name);
-          }
-        });
-
-        if (dbRef.current && seriesMap.size > 0) {
-          for (const [id, name] of seriesMap) {
-            await dbRef.current.execute(
-              "INSERT OR IGNORE INTO series (id, name) VALUES (?, ?)",
-              [id, name]
-            );
-          }
-          setSeries(prev => {
-            const existing = new Set(prev.map(s => s.id));
-            const newSeries = [...seriesMap.entries()]
-              .filter(([id]) => !existing.has(id))
-              .map(([id, name]) => ({ id, name }));
-            return [...prev, ...newSeries];
-          });
-        }
-
-        const existingPaths = new Set(books.map(b => b.path));
-
-        // Books not yet in library → insert
-        const newBooks: Book[] = results
-          .filter((metadata: any) => !existingPaths.has(metadata.path))
-          .map((metadata: any) => ({
-            ...metadata,
-            coverImage: metadata.cover_image,
-            fileType: metadata.file_type,
-            dateAdded: metadata.date_added,
-            lastOpened: metadata.last_opened,
-            isFavorite: metadata.is_favorite,
-            isDeleted: metadata.is_deleted,
-            shelfId: metadata.category || 'all',
-            seriesId: metadata.series_id || undefined,
-            seriesName: metadata.series_name || undefined,
-            volumeNumber: metadata.volume_number ?? undefined,
-          } as Book));
-
-        if (newBooks.length > 0) {
-          setBooks((prev) => [...newBooks, ...prev]);
-          saveBooksToDb(newBooks);
-        }
-
-        // Existing books that now have series info → update series_id
-        if (dbRef.current) {
-          const seriesUpdates = results.filter(
-            (m: any) => existingPaths.has(m.path) && m.series_id
-          );
-          if (seriesUpdates.length > 0) {
-            setBooks(prev => prev.map(b => {
-              const update = seriesUpdates.find((m: any) => m.path === b.path);
-              if (update) return { ...b, seriesId: update.series_id, volumeNumber: update.volume_number ?? b.volumeNumber };
-              return b;
-            }));
-            for (const m of seriesUpdates) {
-              await dbRef.current!.execute(
-                "UPDATE books SET series_id = ?, volume_number = ? WHERE path = ?",
-                [m.series_id, m.volume_number ?? null, m.path]
-              );
-            }
-          }
-        }
-      }
-    } catch (err) { console.error("Folder error:", err); }
   };
 
   const saveBooksToDb = async (newBooks: Book[]) => {
@@ -433,6 +329,165 @@ function App() {
     }
   };
 
+  const importFiles = async (selected: string[]) => {
+    const existingPaths = new Set(booksRef.current.map(b => b.path));
+    const uniqueSelected = selected.filter(p => !existingPaths.has(p));
+
+    const newBooks: Book[] = await Promise.all(uniqueSelected.map(async (fullPath) => {
+      try {
+        const metadata = await invoke("scan_file", { path: fullPath }) as any;
+        return {
+          ...metadata,
+          coverImage: metadata.cover_image,
+          fileType: metadata.file_type,
+          dateAdded: metadata.date_added,
+          lastOpened: metadata.last_opened,
+          isFavorite: metadata.is_favorite,
+          isDeleted: metadata.is_deleted,
+          shelfId: metadata.category || 'all',
+        } as Book;
+      } catch (e) {
+        console.error(`Error scanning file ${fullPath}:`, e);
+        return null;
+      }
+    })).then(results => results.filter((b): b is Book => b !== null));
+
+    if (newBooks.length > 0) {
+      setBooks(prev => {
+        const next = [...newBooks, ...prev];
+        booksRef.current = next;
+        return next;
+      });
+      saveBooksToDb(newBooks);
+    }
+  };
+
+  const importFolder = async (selected: string) => {
+    const results = await invoke("scan_directory", { path: selected }) as any[];
+
+    // Upsert any discovered series to the DB and local state
+    const seriesMap = new Map<string, string>(); // id -> name
+    results.forEach((m: any) => {
+      if (m.series_id && m.series_name) {
+        seriesMap.set(m.series_id, m.series_name);
+      }
+    });
+
+    if (dbRef.current && seriesMap.size > 0) {
+      for (const [id, name] of seriesMap) {
+        await dbRef.current.execute(
+          "INSERT OR IGNORE INTO series (id, name) VALUES (?, ?)",
+          [id, name]
+        );
+      }
+      setSeries(prev => {
+        const existing = new Set(prev.map(s => s.id));
+        const newSeries = [...seriesMap.entries()]
+          .filter(([id]) => !existing.has(id))
+          .map(([id, name]) => ({ id, name }));
+        return [...prev, ...newSeries];
+      });
+    }
+
+    const existingPaths = new Set(booksRef.current.map(b => b.path));
+
+    // Books not yet in library → insert
+    const newBooks: Book[] = results
+      .filter((metadata: any) => !existingPaths.has(metadata.path))
+      .map((metadata: any) => ({
+        ...metadata,
+        coverImage: metadata.cover_image,
+        fileType: metadata.file_type,
+        dateAdded: metadata.date_added,
+        lastOpened: metadata.last_opened,
+        isFavorite: metadata.is_favorite,
+        isDeleted: metadata.is_deleted,
+        shelfId: metadata.category || 'all',
+        seriesId: metadata.series_id || undefined,
+        seriesName: metadata.series_name || undefined,
+        volumeNumber: metadata.volume_number ?? undefined,
+      } as Book));
+
+    if (newBooks.length > 0) {
+      setBooks((prev) => {
+        const next = [...newBooks, ...prev];
+        booksRef.current = next;
+        return next;
+      });
+      saveBooksToDb(newBooks);
+    }
+
+    // Existing books that now have series info → update series_id
+    if (dbRef.current) {
+      const seriesUpdates = results.filter(
+        (m: any) => existingPaths.has(m.path) && m.series_id
+      );
+      if (seriesUpdates.length > 0) {
+        setBooks(prev => {
+          const next = prev.map(b => {
+            const update = seriesUpdates.find((m: any) => m.path === b.path);
+            if (update) return { ...b, seriesId: update.series_id, volumeNumber: update.volume_number ?? b.volumeNumber };
+            return b;
+          });
+          booksRef.current = next;
+          return next;
+        });
+        for (const m of seriesUpdates) {
+          await dbRef.current!.execute(
+            "UPDATE books SET series_id = ?, volume_number = ? WHERE path = ?",
+            [m.series_id, m.volume_number ?? null, m.path]
+          );
+        }
+      }
+    }
+  };
+
+  const handleImportFile = async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{ name: 'Books', extensions: ['epub', 'pdf', 'mobi', 'cbz'] }]
+      });
+      
+      if (selected && Array.isArray(selected)) {
+        await importFiles(selected);
+      }
+    } catch (err) { console.error("Dialog error:", err); }
+  };
+
+  const handleImportFolder = async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (selected && typeof selected === "string") {
+        await importFolder(selected);
+      }
+    } catch (err) { console.error("Folder error:", err); }
+  };
+
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+      const paths = event.payload.paths;
+      const files: string[] = [];
+      const folders: string[] = [];
+      
+      for (const p of paths) {
+        if (await invoke<boolean>("is_directory", { path: p })) {
+          folders.push(p);
+        } else {
+          const ext = p.split('.').pop()?.toLowerCase();
+          if (ext && ['epub', 'pdf', 'mobi', 'cbz'].includes(ext)) {
+            files.push(p);
+          }
+        }
+      }
+      
+      if (files.length > 0) await importFiles(files);
+      for (const f of folders) await importFolder(f);
+    });
+    
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
   const handleBookOpen = async (book: Book) => {
     const now = Date.now();
     setBooks(prev => prev.map(b => b.id === book.id ? { ...b, lastOpened: now } : b));
@@ -459,6 +514,49 @@ function App() {
       setViewingBook(book);
     }
   };
+
+  const hasCheckedStartup = useRef(false);
+
+  useEffect(() => {
+    const unlistenPromise = listen<string>("open-book", (event) => {
+      const bookId = event.payload;
+      console.log("Direct access request for book:", bookId);
+      (window as any)._pendingBookId = bookId;
+    });
+    return () => { unlistenPromise.then(f => f()); };
+  }, []);
+
+  // Check for pending book after loading
+  useEffect(() => {
+    const checkStartupBook = async () => {
+      if (isReady && books.length > 0) {
+        let targetId: string | null = (window as any)._pendingBookId || null;
+        
+        if (!targetId && !hasCheckedStartup.current) {
+          hasCheckedStartup.current = true;
+          try {
+            targetId = await invoke<string | null>('get_startup_book');
+          } catch (e) {
+            console.error("Failed to check startup book:", e);
+          }
+        }
+
+        if (targetId) {
+          const book = books.find(b => b.id === targetId);
+          if (book) {
+            console.log("Opening startup book:", targetId);
+            delete (window as any)._pendingBookId;
+            // Delay to let the Library render first (Open App AND the Book)
+            setTimeout(() => {
+              handleBookOpen(book);
+            }, 800);
+          }
+        }
+      }
+    };
+    
+    checkStartupBook();
+  }, [books, isReady]);
 
   const handlePaletteNavigate = (category: string) => {
     setActiveCategory(category);
@@ -605,6 +703,7 @@ function App() {
           "SELECT b.*, s.name as series_name FROM books b LEFT JOIN series s ON b.series_id = s.id ORDER BY b.date_added DESC"
         );
         setBooks(bookRows.map(mapBookFromDb));
+        setIsReady(true);
 
       } catch (err) {
         console.error("Failed to initialize database:", err);

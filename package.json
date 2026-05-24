@@ -1,7 +1,7 @@
 {
-  "name": "tauri-app",
+  "name": "simplequill",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

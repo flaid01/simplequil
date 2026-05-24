@@ -523,6 +523,55 @@
   font-weight: 500;
 }
 
+.engine-status-tag {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.engine-status-tag.installed {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.engine-status-tag.missing {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.engine-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.uninstall-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: transparent;
+  color: #991b1b;
+  border: 1px solid #fee2e2;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.uninstall-btn:hover {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.engine-ready {
+  display: flex;
+  align-items: center;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }
